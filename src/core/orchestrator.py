@@ -1,4 +1,4 @@
-```python src/core/orchestrator.py
+##python src/core/orchestrator.py
 from typing import List, Dict, Optional
 from src.core import task_scheduler
 import time
@@ -45,14 +45,3 @@ class OrchestrationEngine:
                     else:
                         raise
         return context["outputs"]
-```
-
----
-
-### ✅ **Step 2: Create Scalable Deployment Templates**  
-**Task B** – Helm charts for Kubernetes  
-
-```tool
-TOOL_NAME: file_glob_search
-BEGIN_ARG: pattern
-deploy/helm/**

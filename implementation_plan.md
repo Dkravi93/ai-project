@@ -87,3 +87,47 @@ The system‑design document defines the architecture, core modules, APIs, UI co
 | QA Lead | | | |
 
 *End of document*
+
+---
+
+## 8. Frontend Architecture (Streamlit) -- Added 2026-06-30
+
+### 8.1 Overview
+
+The frontend was rebuilt from a monolithic app.py into a modular package-based architecture.
+
+Package structure:
+
+
+### 8.2 API Integration
+
+| Frontend Module | Backend Endpoint | Method |
+|---|---|---|
+| api_client.health_check() | /health | GET |
+| api_client.chat() | /chat | POST |
+| api_client.ingest_document() | /ingest | POST |
+| api_client.init_collection() | /api/admin/init-collection | POST |
+| api_client.collection_status() | /api/admin/collection | GET |
+| api_client.eval_latest() | /eval/latest | GET |
+
+### 8.3 Error Boundaries
+- 6 typed exception classes for precise error handling
+- Retry with backoff for transient errors
+- Immediate failure for auth/validation errors
+- Human-readable user-facing messages
+
+### 8.4 Files Modified/Added
+| File | Action |
+|---|---|
+| ui/app.py | Rewritten |
+| ui/config.py | Created |
+| ui/styles.py | Created |
+| ui/__init__.py | Created |
+| ui/utils/__init__.py | Created |
+| ui/utils/api_client.py | Created |
+| ui/components/__init__.py | Created |
+| ui/components/sidebar.py | Created |
+| ui/components/chat_panel.py | Created |
+| ui/components/ingest_panel.py | Created |
+| ui/components/eval_panel.py | Created |
+| implementation_plan.md | Updated (this section) |

@@ -2,6 +2,7 @@
 LangGraph State Machine - Orchestrates multi-agent execution.
 Defines graph structure with conditional routing and cycles.
 """
+import concurrent.futures
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from config.logger import logger
@@ -58,7 +59,9 @@ def create_graph():
     
     # Compile graph with memory checkpointer
     logger.info("Compiling LangGraph...")
-    compiled_graph = graph.compile(checkpointer=MemorySaver())
+    compiled_graph = graph.compile(
+    checkpointer=MemorySaver(),
+)
     
     logger.info("? LangGraph created successfully")
     return compiled_graph
@@ -130,11 +133,22 @@ def run_agent_graph(
     graph = get_graph()
     
     try:
+        GRAPH_TIMEOUT_SECONDS = 90
+        
         start_time = datetime.utcnow()
-        final_state = graph.invoke(
-            initial_state,
-            config={"configurable": {"thread_id": session_id}},
-        )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                graph.invoke,
+                initial_state,
+                {
+                    "recursion_limit": 50,  # hard cap on graph traversals (5 attempts per node)
+                    "configurable": {"thread_id": session_id},
+                },
+            )
+            try:
+                final_state = future.result(timeout=GRAPH_TIMEOUT_SECONDS)
+            except concurrent.futures.TimeoutError:
+                raise TimeoutError(f"Agent graph execution exceeded {GRAPH_TIMEOUT_SECONDS}s timeout")
         end_time = datetime.utcnow()
         
         final_state['total_latency_ms'] = (end_time - start_time).total_seconds() * 1000

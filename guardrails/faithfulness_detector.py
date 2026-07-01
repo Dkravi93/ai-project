@@ -1,4 +1,4 @@
-﻿"""
+"""
 RAGAS-based Faithfulness and Hallucination Detection.
 Evaluates if generated text is grounded in retrieved context.
 """
@@ -29,7 +29,7 @@ def score_faithfulness(
         Tuple of (score [0-1], details_dict)
     """
     try:
-        llm = ChatGroq(model="mixtral-8x7b-32768", temperature=0)
+        llm = ChatGroq(model=settings.groq_model, temperature=0)
         
         if not queries:
             queries = [generated_text[:100]]  # Use first 100 chars as query
@@ -103,7 +103,7 @@ def score_relevance(
         Tuple of (relevance_score [0-1], reasoning)
     """
     try:
-        llm = ChatGroq(model="mixtral-8x7b-32768", temperature=0)
+        llm = ChatGroq(model=settings.groq_model, temperature=0)
         
         prompt = f"""Rate the relevance of this answer to the given context.
 Context: {context[:500]}

@@ -11,13 +11,15 @@ class Settings(BaseSettings):
     # LLM & API Keys
     groq_api_key: str = ""
     tavily_api_key: str = ""
+    groq_model: str = ""
 
     # Qdrant Vector Database
+    qdrant_mode: str = "remote"  # "remote" for server, "embedded" for in-process
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
     qdrant_api_key: str = ""
     qdrant_collection_name: str = "documents"
-    qdrant_timeout_seconds: float = 3.0
+    qdrant_timeout_seconds: float = 10.0
 
     # FastAPI
     api_host: str = "0.0.0.0"
@@ -53,7 +55,7 @@ class Settings(BaseSettings):
 
     # Coder Sandbox
     sandbox_timeout_seconds: int = 10
-    sandbox_max_attempts: int = 3
+    sandbox_max_attempts: int = 1
 
     # Deployment
     environment: str = "development"

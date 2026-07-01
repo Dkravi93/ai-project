@@ -1,11 +1,11 @@
-﻿"""
+"""
 Qdrant Vector Database Setup and Management.
 Handles collection creation, deletion, and schema validation.
 """
 import socket
 from typing import Dict, List
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import Filter, Distance, VectorParams, PointStruct
 from config.logger import logger
 from config.settings import get_settings
 
@@ -16,14 +16,18 @@ class QdrantManager:
     """Manager for Qdrant vector database operations."""
     
     def __init__(self):
-        """Initialize Qdrant client."""
-        self.client = QdrantClient(
-            host=settings.qdrant_host,
-            port=settings.qdrant_port,
-            api_key=settings.qdrant_api_key if settings.qdrant_api_key else None,
-            timeout=settings.qdrant_timeout_seconds,
-        )
-        logger.info(f"QdrantManager initialized: {settings.qdrant_host}:{settings.qdrant_port}")
+        """Initialize Qdrant client (embedded by default, no server needed)."""
+        if settings.qdrant_mode == "remote":
+            self.client = QdrantClient(
+                host=settings.qdrant_host,
+                port=settings.qdrant_port,
+                api_key=settings.qdrant_api_key if settings.qdrant_api_key else None,
+                timeout=settings.qdrant_timeout_seconds,
+            )
+            logger.info(f"QdrantManager initialized (remote): {settings.qdrant_host}:{settings.qdrant_port}")
+        else:
+            self.client = QdrantClient(":memory:")
+            logger.info("QdrantManager initialized (embedded in-memory, no server required)")
     
     def get_client(self) -> QdrantClient:
         """Get the Qdrant client."""
@@ -111,6 +115,20 @@ class QdrantManager:
             "vector_size": settings.embedding_dim,
             "info": info,
         }
+    
+    def delete_all_points(self, collection_name: str = None) -> bool:
+        """Clear all points from a collection (for dev/testing)."""
+        collection_name = collection_name or settings.qdrant_collection_name
+        try:
+            self.client.delete(
+                collection_name=collection_name,
+                points_selector=Filter(),
+            )
+            logger.info(f"Cleared all points from '{collection_name}'")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to clear points: {e}")
+            return False
 
     def ensure_payload_indexes(self, collection_name: str = None) -> None:
         """Create useful payload indexes when the Qdrant version supports them."""
@@ -201,27 +219,42 @@ class QdrantManager:
         query_vector: List[float],
         limit: int = 10,
         score_threshold: float = None,
+        query_filter: object = None,
     ) -> List[Dict]:
         """
-        Search for similar vectors.
+        Search for similar vectors with optional filter.
         
-        Returns list of results with id, score, payload.
+        Args:
+            collection_name: Qdrant collection name
+            query_vector: Embedding vector to search with
+            limit: Max number of results
+            score_threshold: Minimum similarity score
+            query_filter: Optional Qdrant filter (e.g. {"must": [{"key": "doc_id", "match": {"value": [...]}}]})
+        
+        Returns:
+            List of results with id, score, payload.
         """
         try:
             if hasattr(self.client, "search"):
-                results = self.client.search(
+                kwargs = dict(
                     collection_name=collection_name,
                     query_vector=query_vector,
                     limit=limit,
                     score_threshold=score_threshold,
                 )
+                if query_filter is not None:
+                    kwargs["query_filter"] = query_filter
+                results = self.client.search(**kwargs)
             else:
-                response = self.client.query_points(
+                kwargs = dict(
                     collection_name=collection_name,
                     query=query_vector,
                     limit=limit,
                     score_threshold=score_threshold,
                 )
+                if query_filter is not None:
+                    kwargs["query_filter"] = query_filter
+                response = self.client.query_points(**kwargs)
                 results = response.points
             
             return [

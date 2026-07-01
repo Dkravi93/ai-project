@@ -1,4 +1,4 @@
-﻿"""
+"""
 Unified Guardrails Middleware.
 Orchestrates PII, toxicity, and faithfulness checks for input/output.
 """

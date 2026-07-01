@@ -1,4 +1,4 @@
-﻿"""
+"""
 RAG (Retrieval-Augmented Generation) module for AgentOps Hub.
 Handles document ingestion, embedding, and retrieval with hybrid search.
 """

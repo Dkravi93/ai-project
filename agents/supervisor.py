@@ -32,16 +32,18 @@ SUPERVISOR_SYSTEM = """You are the supervisor agent for a multi-agent system. Yo
 
 Available agents:
 - retriever: Searches documents for relevant context
-- coder: Executes Python or SQL code
-- web_search: Fetches live web data
+- coder: Executes Python or SQL code (ONLY if the query explicitly asks for data analysis, calculations, or code generation)
+- web_search: Fetches live web data (ONLY if the query asks for current/realtime information)
 - writer: Synthesizes final answer
 
 Rules:
 - Always end with 'writer' agent
-- Retriever is almost always needed (unless pure coding/computation)
-- Web search is for real-time data needs
-- Coder is for data analysis, calculations, or code execution
-- Keep steps minimal (2-4 steps typically)
+- Start with 'retriever' for document-grounded queries
+- ONLY use 'coder' if the query literally asks to write/run/execute code or do computation
+- ONLY use 'web_search' if the query needs current/real-time information
+- Skip coder and web_search for general ask-your-documents questions
+- Keep steps minimal (2-3 steps typically)
+- Prefer: retriever -> writer for document QA
 """
 
 
@@ -49,9 +51,25 @@ def supervisor_node(state: AgentState) -> AgentState:
     """Supervisor node: analyzes query and creates task plan."""
     logger.info(f"Supervisor: Processing query: {state['query'][:50]}...")
     
+    # Check if previous agent(s) failed — if so, skip to writer
+    for err in state.get("errors", []):
+        if "Retriever error" in err or "Coder error" in err or "WebSearch error" in err:
+            logger.warning(f"Supervisor: Agent failure detected ({err[:60]}), routing directly to writer")
+            state["plan"] = ["writer"]
+            state.setdefault("attempt_count", 0)
+            state["agent_trace"].append({
+                "agent": "supervisor",
+                "timestamp": datetime.utcnow().isoformat(),
+                "input_summary": f"Query: {state['query'][:50]}...",
+                "output_summary": f"Fallback plan: writer (agent failure detected)",
+                "duration_ms": 0,
+                "token_count": 0,
+            })
+            return state
+    
     # Initialize LLM
     llm = ChatGroq(
-        model="mixtral-8x7b-32768",
+        model=settings.groq_model,
         api_key=settings.groq_api_key,
         temperature=0.3,
     )
@@ -69,7 +87,6 @@ def supervisor_node(state: AgentState) -> AgentState:
     try:
         plan = structured_llm.invoke(messages)
         state['plan'] = plan.steps
-        state['attempt_count'] = 0
         
         state['agent_trace'].append({
             'agent': 'supervisor',
@@ -87,18 +104,22 @@ def supervisor_node(state: AgentState) -> AgentState:
         logger.error(f"Supervisor error: {str(e)}")
         state['errors'].append(f"Supervisor error: {str(e)}")
         state['plan'] = ['writer']
+        state.setdefault("attempt_count", 0)
         return state
 
 
 def route_next_agent(state: AgentState) -> str:
     """Routing function: determines next agent to execute."""
-    if state['attempt_count'] > 3:
-        logger.warning("Max attempts reached, routing to writer")
+    # Bump attempt counter so max-attempts guard actually works
+    state['attempt_count'] = state.get('attempt_count', 0) + 1
+    
+    if state['attempt_count'] > 5:
+        logger.warning("Max attempts (5) reached, routing to writer")
         return 'writer'
     
     if state['plan']:
         next_agent = state['plan'].pop(0)
-        logger.info(f"Routing to: {next_agent}")
+        logger.info(f"Routing to: {next_agent} (attempt {state['attempt_count']})")
         return next_agent
     
     logger.info("Plan complete, routing to writer")

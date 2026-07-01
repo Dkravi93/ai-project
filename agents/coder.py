@@ -42,7 +42,7 @@ def coder_node(state: AgentState) -> AgentState:
     
     # Initialize LLM
     llm = ChatGroq(
-        model="mixtral-8x7b-32768",
+        model=settings.groq_model,
         api_key=settings.groq_api_key,
         temperature=0.2,
     )
@@ -85,7 +85,13 @@ Code:"""
             logger.info(f"Coder: Attempt {attempt+1}: Executing code...")
             
             # Execute in sandbox
-            output = execute_safe(code)
+            # Register timeout handler
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(settings.sandbox_timeout_seconds)
+            try:
+                output = execute_safe(code)
+            finally:
+                signal.alarm(0)
             state['code_output'] = output
             
             logger.info("Coder: Code executed successfully")

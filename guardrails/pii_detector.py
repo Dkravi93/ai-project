@@ -1,4 +1,4 @@
-﻿"""
+"""
 PII Detection and Removal using Presidio.
 Detects and redacts personally identifiable information.
 """

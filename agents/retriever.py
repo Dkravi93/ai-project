@@ -80,6 +80,13 @@ def retriever_node(state: AgentState) -> AgentState:
     Retriever node: performs hybrid search (dense + BM25).
     Returns top-5 chunks with citations.
     """
+    # GUARD: If retriever already failed, skip to avoid infinite loops
+    for err in state.get("errors", []):
+        if "Retriever error" in err:
+            logger.warning("Retriever: Skipping (previously failed)")
+            state["retrieved_chunks"] = []
+            return state
+    
     query = state['query']
     logger.info(f"Retriever: Searching for '{query[:50]}...'")
     
@@ -89,10 +96,26 @@ def retriever_node(state: AgentState) -> AgentState:
         
         # Step 2: Dense retrieval from Qdrant (top 20)
         logger.debug("Retriever: Performing dense retrieval...")
+
+        # If doc_ids were provided upstream, restrict retrieval to those documents.
+        doc_ids = state.get("doc_ids") or []
+        qdrant_filter = None
+        if doc_ids:
+            # Use MatchAny because doc_ids is a list of strings
+            try:
+                from qdrant_client.models import Filter as QdrantFilter, FieldCondition, MatchAny
+                qdrant_filter = QdrantFilter(
+                    must=[FieldCondition(key="doc_id", match=MatchAny(any=doc_ids))]
+                )
+            except ImportError:
+                # Fallback: dict format that Qdrant Pydantic models understand
+                qdrant_filter = {"must": [{"key": "doc_id", "match": {"any": doc_ids}}]}
+
         search_results = qdrant_mgr.search(
             collection_name=settings.qdrant_collection_name,
             query_vector=query_embedding,
             limit=20,
+            query_filter=qdrant_filter,
         )
         
         if not search_results:
@@ -204,7 +227,17 @@ def ingest_document(
         embeddings = embed_documents(chunks)
         
         # Step 3: Store in Qdrant
-        qdrant_mgr.create_collection(settings.qdrant_collection_name)
+        collection_ready = qdrant_mgr.create_collection(settings.qdrant_collection_name)
+        if not collection_ready:
+            logger.error(f"Failed to create/verify collection '{settings.qdrant_collection_name}' - Qdrant may not be running")
+            return {
+                'doc_id': doc_id,
+                'chunks_indexed': 0,
+                'error': f'Qdrant collection creation failed - check Qdrant server is running at {settings.qdrant_host}:{settings.qdrant_port}',
+                'embedding_model': settings.embedding_model,
+                'embedding_fallback': SentenceTransformer is None,
+            }
+        
         points = []
         for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings)):
             points.append(
@@ -222,10 +255,20 @@ def ingest_document(
             )
         
         # Upsert to Qdrant
-        qdrant_mgr.add_points_batch(
+        stored = qdrant_mgr.add_points_batch(
             collection_name=settings.qdrant_collection_name,
             points=points,
         )
+        
+        if not stored:
+            logger.error(f"Failed to store {len(points)} points in Qdrant")
+            return {
+                'doc_id': doc_id,
+                'chunks_indexed': 0,
+                'error': 'Qdrant upsert failed - check Qdrant server is running',
+                'embedding_model': settings.embedding_model,
+                'embedding_fallback': SentenceTransformer is None,
+            }
         
         logger.info(f"Stored {len(points)} points in Qdrant")
         return {

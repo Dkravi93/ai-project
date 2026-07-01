@@ -1,4 +1,4 @@
-﻿"""
+"""
 Toxicity Detection using Detoxify.
 Detects harmful, offensive, or toxic content in text.
 """

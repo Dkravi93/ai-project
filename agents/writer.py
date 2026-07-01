@@ -46,7 +46,7 @@ def writer_node(state: AgentState) -> AgentState:
     
     # Initialize LLM
     llm = ChatGroq(
-        model="mixtral-8x7b-32768",
+        model=settings.groq_model,
         api_key=settings.groq_api_key,
         temperature=0.5,
     )
@@ -74,7 +74,7 @@ Generate a comprehensive answer:"""
         
         # Step 2: Reflection loop (max 2 iterations)
         final_answer = draft_answer
-        for iteration in range(2):
+        for iteration in range(1):
             reflection_prompt = f"""{REFLECTION_SYSTEM}
 
 Query: {state['query']}

@@ -1,28 +1,34 @@
-﻿"""
+"""
 FastAPI main application entry point.
 Defines all routes and middleware for AgentOps Hub API.
 Includes guardrails for input/output validation.
 """
 from typing import Optional
-
 from fastapi import FastAPI, UploadFile, File, Header, HTTPException, Body, Query, Form
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware import Middleware
+from starlette.routing import Mount
 from pydantic import BaseModel, Field
+from prometheus_client import (
+    make_asgi_app,
+    Counter,
+    Histogram,
+    generate_latest,
+    CONTENT_TYPE_LATEST,
+)
+from starlette.responses import Response
 import uuid
 from datetime import datetime
 import zipfile
 import xml.etree.ElementTree as ET
 from io import BytesIO
-
 from config.settings import get_settings
 from config.logger import logger
 from agents import run_agent_graph, ingest_document
 from guardrails import GuardrailsMiddleware
 from rag import get_qdrant_manager
-
 settings = get_settings()
-
 # Initialize guardrails and Qdrant
 guardrails = GuardrailsMiddleware(
     pii_threshold=settings.pii_threshold,
@@ -31,17 +37,39 @@ guardrails = GuardrailsMiddleware(
 )
 qdrant_mgr = get_qdrant_manager()
 
+# ==================== Prometheus Metrics ====================
+# Custom application-level counters
+CHAT_REQUESTS = Counter(
+    "agentops_chat_requests_total",
+    "Total number of chat requests",
+    ["status"],
+)
+INGEST_REQUESTS = Counter(
+    "agentops_ingest_requests_total",
+    "Total number of document ingest requests",
+    ["status"],
+)
+CHAT_LATENCY = Histogram(
+    "agentops_chat_latency_seconds",
+    "Chat endpoint latency in seconds",
+)
+
+# Mount the Prometheus ASGI metrics app
+_metrics_app = make_asgi_app()
+
+app = FastAPI(
+    title="AgentOps Hub API",
+    version="1.0.0",
+    routes=[Mount("/metrics", app=_metrics_app)],
+)
 
 class ChatRequest(BaseModel):
     """Request body for POST /chat."""
-
     query: str = Field(..., min_length=3, max_length=2000)
     session_id: Optional[str] = None
     doc_ids: list[str] = Field(default_factory=list)
-
-
 def extract_upload_text(filename: str, content: bytes) -> str:
-    """Extract text from supported upload types with no external parser dependency."""
+    """Extract text from supported upload types."""
     suffix = (filename or "").lower().rsplit(".", 1)[-1]
 
     if suffix == "docx":
@@ -56,18 +84,69 @@ def extract_upload_text(filename: str, content: bytes) -> str:
                 paragraphs.append(text)
         return "\n".join(paragraphs)
 
+    if suffix == "pdf":
+        try:
+            import fitz
+            text_parts = []
+            with fitz.open(stream=content, filetype="pdf") as doc:
+                for page in doc:
+                    text_parts.append(page.get_text())
+            result = "\n".join(text_parts)
+            if len(result.strip()) > 50:
+                return result
+        except ImportError:
+            pass
+        except Exception as e:
+            pass
+        try:
+            from pdfminer.high_level import extract_text as pdfminer_extract
+            from io import BytesIO
+            result = pdfminer_extract(BytesIO(content))
+            if len(result.strip()) > 50:
+                return result
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
     try:
         return content.decode("utf-8")
     except UnicodeDecodeError:
         return content.decode("latin-1", errors="ignore")
-
-# ==================== Create FastAPI App ====================
-app = FastAPI(
-    title="AgentOps Hub",
-    description="Multi-agent AI system for document analysis and complex reasoning",
-    version="1.0.0",
-)
-
+@app.on_event("startup")
+async def preload_models():
+    """Pre-load heavy ML models at startup to avoid first-request latency."""
+    import asyncio
+    from config.logger import logger
+    
+    logger.info("Pre-loading models at startup...")
+    
+    # Warm up SentenceTransformer in a thread
+    def _load_sentence_transformer():
+        try:
+            from sentence_transformers import SentenceTransformer
+            _ = SentenceTransformer(settings.embedding_model)
+            logger.info(f"SentenceTransformer ({settings.embedding_model}) loaded")
+        except Exception as e:
+            logger.warning(f"SentenceTransformer loading skipped: {e}")
+    
+    # Warm up Detoxify in a thread
+    def _load_detoxify():
+        try:
+            from detoxify import Detoxify
+            _ = Detoxify("multilingual", device="cpu")
+            logger.info("Detoxify (multilingual) loaded")
+        except Exception as e:
+            logger.warning(f"Detoxify loading skipped: {e}")
+    
+    # Run both in parallel
+    loop = asyncio.get_event_loop()
+    await asyncio.gather(
+        loop.run_in_executor(None, _load_sentence_transformer),
+        loop.run_in_executor(None, _load_detoxify),
+    )
+    
+    logger.info("Model pre-loading complete")
 # ==================== CORS Middleware ====================
 app.add_middleware(
     CORSMiddleware,
@@ -76,7 +155,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # ==================== Health Check ====================
 @app.get("/health")
 async def health():
@@ -92,7 +170,6 @@ async def health():
         "embedding_dim": settings.embedding_dim,
         "timestamp": datetime.utcnow().isoformat(),
     }
-
 # ==================== Root ====================
 @app.get("/")
 async def root():
@@ -102,11 +179,11 @@ async def root():
         "endpoints": {
             "docs": "/docs",
             "health": "/health",
+            "metrics": "/metrics",
             "chat": "/chat (POST)",
             "ingest": "/ingest (POST)",
         }
     }
-
 # ==================== Auth ====================
 def verify_api_key(x_api_key: str = Header(None)):
     """Verify API key for protected endpoints."""
@@ -115,8 +192,6 @@ def verify_api_key(x_api_key: str = Header(None)):
     if x_api_key != settings.api_key:
         raise HTTPException(status_code=403, detail="Invalid API key")
     return x_api_key
-
-
 # ==================== Document Ingestion ====================
 @app.post("/ingest")
 async def ingest(
@@ -159,7 +234,8 @@ async def ingest(
         )
         
         logger.info(f"✓ Ingested {file.filename}: {result['chunks_indexed']} chunks")
-        
+    
+        INGEST_REQUESTS.labels(status="success").inc()
         return {
             "status": "success",
             "doc_id": result["doc_id"],
@@ -171,14 +247,14 @@ async def ingest(
                 "toxicity_score": input_check.toxicity_score,
             }
         }
-    
+
     except HTTPException:
+        INGEST_REQUESTS.labels(status="error").inc()
         raise
     except Exception as e:
+        INGEST_REQUESTS.labels(status="error").inc()
         logger.error(f"Ingest error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
-
-
 # ==================== Chat Endpoint ====================
 @app.post("/chat")
 async def chat(
@@ -195,12 +271,10 @@ async def chat(
     - Returns: Answer, citations, confidence, agent trace
     """
     verify_api_key(api_key)
-
     if payload is not None:
         query = payload.query
         session_id = payload.session_id
         doc_ids = payload.doc_ids
-
     # Validate input
     if not query or len(query) < 3:
         raise HTTPException(status_code=400, detail="Query too short")
@@ -232,14 +306,18 @@ async def chat(
             trace_id=trace_id,
         )
         
+        # Ensure final_state is a dict for safe access
+        if final_state is None:
+            final_state = {}
+        
         # Get context for faithfulness check
         context = " ".join([
-            chunk.get('text', '')
+            chunk.get('text', '') if isinstance(chunk, dict) else ''
             for chunk in final_state.get('retrieved_chunks', [])
         ])
         
         # Run output guardrails
-        answer = final_state.get('final_answer', '')
+        answer = final_state.get('final_answer') or ''
         output_check = await guardrails.check_output(
             answer=answer,
             context=context,
@@ -249,13 +327,16 @@ async def chat(
         # Use cleaned answer
         final_answer = output_check.cleaned_text or answer
         
-        # Format citations
+        # Format citations (None-safe)
         citations = []
         for chunk in final_state.get('retrieved_chunks', []):
+            if not isinstance(chunk, dict):
+                continue
+            cit = chunk.get('citation') or {}
             citations.append({
-                "source": chunk['citation']['source'],
-                "page": chunk['citation']['page'],
-                "chunk": chunk['citation']['chunk_index'],
+                "source": cit.get('source', 'unknown'),
+                "page": cit.get('page'),
+                "chunk": cit.get('chunk_index'),
             })
         
         response = {
@@ -265,11 +346,11 @@ async def chat(
             "citations": citations,
             "agent_trace": [
                 {
-                    "agent": t.get('agent'),
-                    "timestamp": t.get('timestamp'),
-                    "summary": t.get('output_summary'),
+                    "agent": t.get('agent') if isinstance(t, dict) else None,
+                    "timestamp": t.get('timestamp') if isinstance(t, dict) else None,
+                    "summary": t.get('output_summary') if isinstance(t, dict) else None,
                 }
-                for t in final_state.get('agent_trace', [])
+                for t in (final_state.get('agent_trace', []) or [])
             ],
             "guardrails": {
                 "input_check": input_check.to_dict(),
@@ -282,16 +363,17 @@ async def chat(
             "latency_ms": final_state.get('total_latency_ms', 0),
         }
         
+        CHAT_REQUESTS.labels(status="success").inc()
         logger.info(f"✓ Chat completed: {response['confidence']:.2%} confidence")
         return response
     
     except HTTPException:
+        CHAT_REQUESTS.labels(status="error").inc()
         raise
     except Exception as e:
+        CHAT_REQUESTS.labels(status="error").inc()
         logger.error(f"Chat error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Query execution failed: {str(e)}")
-
-
 # ==================== Qdrant Collection Init ====================
 @app.post("/api/admin/init-collection")
 async def init_collection(
@@ -321,8 +403,6 @@ async def init_collection(
     except Exception as e:
         logger.error(f"Collection init error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.get("/api/admin/collection")
 async def collection_status(api_key: str = Header(None, alias="X-API-Key")):
     """Return Qdrant collection status and stats."""
@@ -334,8 +414,6 @@ async def collection_status(api_key: str = Header(None, alias="X-API-Key")):
         "vector_size": settings.embedding_dim,
         "info": qdrant_mgr.get_collection_info() if exists else {},
     }
-
-
 # ==================== Eval Endpoint ====================
 @app.get("/eval/latest")
 async def eval_latest(api_key: str = Header(None, alias="X-API-Key")):
@@ -361,8 +439,6 @@ async def eval_latest(api_key: str = Header(None, alias="X-API-Key")):
         },
         "golden_dataset_size": 50,
     }
-
-
 if __name__ == "__main__":
     import uvicorn
     
