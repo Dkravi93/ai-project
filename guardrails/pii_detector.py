@@ -33,8 +33,25 @@ def _get_engines():
     if AnalyzerEngine is None or AnonymizerEngine is None:
         return None, None
     if _analyzer is None or _anonymizer is None:
-        _analyzer = AnalyzerEngine()
-        _anonymizer = AnonymizerEngine()
+        try:
+            import spacy
+            from presidio_analyzer.nlp_engine import SpacyNlpEngine
+
+            _loaded_nlp = spacy.load("en_core_web_sm")
+
+            class _PreloadedSpacyNlpEngine(SpacyNlpEngine):
+                def load(self):
+                    self.nlp = {"en": _loaded_nlp}
+                    self.is_loaded = True
+
+            nlp_engine = _PreloadedSpacyNlpEngine()
+            nlp_engine.load()
+            _analyzer = AnalyzerEngine(nlp_engine=nlp_engine)
+            _anonymizer = AnonymizerEngine()
+            logger.info("Presidio AnalyzerEngine initialized with pre-loaded spaCy model")
+        except Exception as e:
+            logger.warning(f"Presidio init failed, falling back to regex PII: {e}")
+            return None, None
     return _analyzer, _anonymizer
 
 
