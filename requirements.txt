@@ -77,3 +77,16 @@ ipython>=8.20.0
 
 # Docker & Deployment
 docker>=7.0.0
+click
+fastapi
+httpx
+loguru
+pydantic
+pydantic-settings
+python-dotenv
+python-multipart
+pyyaml
+rich
+streamlit
+tenacity
+uvicorn[standard]

@@ -1,0 +1,93 @@
+modules = ["python-3.11"]
+[agent]
+expertMode = true
+stack = "BEST_EFFORT_FALLBACK"
+
+[nix]
+channel = "stable-25_05"
+packages = ["glibcLocales", "libxcrypt", "libyaml"]
+
+[userenv]
+
+[userenv.shared]
+QDRANT_MODE = "embedded"
+QDRANT_HOST = "localhost"
+QDRANT_PORT = "6333"
+QDRANT_COLLECTION_NAME = "documents"
+QDRANT_TIMEOUT_SECONDS = "10"
+API_HOST = "localhost"
+API_PORT = "8000"
+UI_API_BASE_URL = "http://localhost:8000"
+API_KEY = "dev-api-key-123"
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+EMBEDDING_DIM = "384"
+EMBEDDING_CACHE_DIR = "./models"
+RAGAS_THRESHOLD = "0.7"
+PII_THRESHOLD = "0.5"
+TOXICITY_THRESHOLD = "0.6"
+SEVERE_TOXICITY_THRESHOLD = "0.8"
+PROMPT_INJECTION_THRESHOLD = "0.7"
+TOKEN_HARD_LIMIT = "8000"
+SANDBOX_TIMEOUT_SECONDS = "10"
+SANDBOX_MAX_ATTEMPTS = "3"
+ENVIRONMENT = "development"
+DEBUG = "true"
+LOG_LEVEL = "INFO"
+MLFLOW_TRACKING_URI = "http://localhost:5001"
+LANGSMITH_PROJECT = "agentops-hub"
+PROMETHEUS_SCRAPE_PORT = "8001"
+PRESIDIO_OPERATORS_ENABLED = "true"
+DETOXIFY_BATCH_SIZE = "32"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Backend API"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Backend API"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python -m uvicorn api.main:app --host localhost --port 8000 --reload"
+waitForPort = 8000
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python -m streamlit run ui/app.py --server.port 5000 --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 8000
+externalPort = 8000
+exposeLocalhost = true
+
+[deployment]
+deploymentTarget = "vm"
+run = ["bash", "-c", "python -m uvicorn api.main:app --host localhost --port 8000 & python -m streamlit run ui/app.py --server.port 5000 --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false"]
