@@ -118,6 +118,11 @@ async def preload_models():
     """Pre-load heavy ML models at startup to avoid first-request latency."""
     import asyncio
     from config.logger import logger
+    import os
+
+    if os.environ.get("SKIP_MODEL_LOADING", "false").lower() == "true":
+        logger.info("Model pre-loading skipped (SKIP_MODEL_LOADING=true)")
+        return
     
     logger.info("Pre-loading models at startup...")
     
@@ -134,8 +139,8 @@ async def preload_models():
     def _load_detoxify():
         try:
             from detoxify import Detoxify
-            _ = Detoxify("multilingual", device="cpu")
-            logger.info("Detoxify (multilingual) loaded")
+            _ = Detoxify(settings.detoxify_model_name, device="cpu")
+            logger.info(f"Detoxify ({settings.detoxify_model_name}) loaded")
         except Exception as e:
             logger.warning(f"Detoxify loading skipped: {e}")
     

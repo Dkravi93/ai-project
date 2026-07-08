@@ -12,6 +12,7 @@ settings = get_settings()
 try:
     from presidio_analyzer import AnalyzerEngine
     from presidio_anonymizer import AnonymizerEngine
+    from presidio_analyzer.nlp_engine import NlpEngineProvider
 except Exception as e:  # pragma: no cover - depends on optional local models
     AnalyzerEngine = None
     AnonymizerEngine = None
@@ -33,7 +34,17 @@ def _get_engines():
     if AnalyzerEngine is None or AnonymizerEngine is None:
         return None, None
     if _analyzer is None or _anonymizer is None:
-        _analyzer = AnalyzerEngine()
+        from presidio_analyzer.nlp_engine import NlpEngineProvider
+        # Use small spaCy model (~12 MB) instead of default large (~400 MB)
+        nlp_config = {
+            "nlp_engine_name": "spacy",
+            "models": [
+                {"lang_code": "en", "model_name": settings.spacy_model}
+            ]
+        }
+        provider = NlpEngineProvider(nlp_configuration=nlp_config)
+        nlp_engine = provider.create_engine()
+        _analyzer = AnalyzerEngine(nlp_engine=nlp_engine)
         _anonymizer = AnonymizerEngine()
     return _analyzer, _anonymizer
 
