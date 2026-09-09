@@ -234,7 +234,7 @@ async def ingest(
         text_content = extract_upload_text(filename, content)
         
         # Run input guardrails
-        input_check = await guardrails.check_input(text_content[:500])
+        input_check = await guardrails.check_input(text_content)
         
         if input_check.blocked:
             logger.warning(f"Ingest blocked: {input_check.reason}")

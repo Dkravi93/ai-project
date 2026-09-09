@@ -74,6 +74,22 @@ def lexical_scores(texts: list[str], query: str) -> list[float]:
         scores.append(len(query_tokens & text_tokens) / len(query_tokens))
     return scores
 
+def reciprocal_rank_fusion(
+    ranked_lists: list[list[str]],
+    k: int = 60,
+) -> dict[str, float]:
+
+    scores = {}
+
+    for ranked_list in ranked_lists:
+        for rank, chunk_id in enumerate(ranked_list, start=1):
+            scores[chunk_id] = (
+                scores.get(chunk_id, 0.0)
+                + 1.0 / (k + rank)
+            )
+
+    return scores
+
 
 def retriever_node(state: AgentState) -> AgentState:
     """
@@ -131,112 +147,184 @@ def retriever_node(state: AgentState) -> AgentState:
                     ]
                 }
 
+        # ---------------------------------------------------------
+        # Step 2: Dense retrieval from Qdrant
+        # ---------------------------------------------------------
+
         search_results = qdrant_mgr.search(
             collection_name=settings.qdrant_collection_name,
             query_vector=query_embedding,
-            limit=20,
+            limit=50,
             query_filter=qdrant_filter,
         )
 
         if not search_results:
-            logger.warning("Retriever: No results found in Qdrant")
+            logger.warning(
+                "Retriever: No results found in Qdrant"
+            )
+
             state["retrieved_chunks"] = []
             return state
 
-        # Step 3: Extract texts for BM25 re-ranking
+
+        # ---------------------------------------------------------
+        # Step 3: Prepare dense candidates
+        # ---------------------------------------------------------
+
         chunks_data = []
 
         for result in search_results:
+
             payload = result.get("payload") or {}
 
             text = payload.get("text", "")
-            raw_score = result.get("score", 0.0)
-            logger.info(
-                f"Qdrant score: value={raw_score!r} "
-                f"type={type(raw_score).__name__}"
+
+            raw_score = result.get(
+                "score",
+                0.0,
             )
 
-            # Convert NumPy / other numeric types to native Python float
             score = float(raw_score)
 
             chunks_data.append(
                 {
-                    "id": result.get("id"),
+                    "id": str(result.get("id")),
                     "text": str(text),
                     "score": score,
                     "payload": payload,
                 }
             )
 
-        # Step 4: BM25 re-ranking
-        logger.debug("Retriever: Applying BM25 re-ranking...")
 
-        texts = [c["text"] for c in chunks_data]
+        # ---------------------------------------------------------
+        # Step 4: BM25
+        # ---------------------------------------------------------
+
+        texts = [
+            chunk["text"]
+            for chunk in chunks_data
+        ]
 
         if BM25Okapi is not None:
+
             bm25 = BM25Okapi(
-                [text.split() for text in texts]
+                [
+                    text.lower().split()
+                    for text in texts
+                ]
             )
 
             query_tokens = query.lower().split()
 
-            # Convert NumPy array to native Python list
-            bm25_scores = bm25.get_scores(query_tokens).tolist()
-
-        else:
-            bm25_scores = lexical_scores(texts, query)
-
-            # Make sure fallback scores are native Python floats
             bm25_scores = [
                 float(score)
-                for score in bm25_scores
+                for score in bm25.get_scores(
+                    query_tokens
+                ).tolist()
             ]
 
-        # Combine scores (60% dense, 40% BM25)
-        combined_scores = []
+        else:
 
-        max_bm25_score = max(bm25_scores) if bm25_scores else 0.0
+            bm25_scores = [
+                float(score)
+                for score in lexical_scores(
+                    texts,
+                    query,
+                )
+            ]
 
-        for i, chunk in enumerate(chunks_data):
-            # Normalize dense score
-            dense_score = (
-                float(chunk["score"]) + 1.0
-            ) / 2.0
 
-            # Normalize BM25 score
-            bm25_score = (
-                float(bm25_scores[i])
-                / (float(max_bm25_score) + 1e-6)
-            )
+        # ---------------------------------------------------------
+        # Step 5: Dense ranking
+        # ---------------------------------------------------------
 
-            # Ensure final score is native Python float
-            combined = float(
-                0.6 * dense_score +
-                0.4 * bm25_score
-            )
+        dense_ranked_ids = [
+            str(chunk["id"])
+            for chunk in chunks_data
+        ]
 
-            combined_scores.append(
-                (i, combined)
-            )
 
-        # Sort by combined score
-        combined_scores.sort(
-            key=lambda x: x[1],
+        # ---------------------------------------------------------
+        # Step 6: BM25 ranking
+        # ---------------------------------------------------------
+
+        bm25_ranked_indices = sorted(
+            range(len(bm25_scores)),
+            key=lambda i: bm25_scores[i],
             reverse=True,
         )
 
-        # Step 5: Return top 5 with citations
+        bm25_ranked_ids = [
+            str(chunks_data[i]["id"])
+            for i in bm25_ranked_indices
+        ]
+
+
+        # ---------------------------------------------------------
+        # Step 7: RRF
+        # ---------------------------------------------------------
+
+        rrf_scores = reciprocal_rank_fusion(
+            [
+                dense_ranked_ids,
+                bm25_ranked_ids,
+            ],
+            k=60,
+        )
+
+
+        # ---------------------------------------------------------
+        # Step 8: Combined ranking
+        # ---------------------------------------------------------
+
+        ranked_ids = sorted(
+            rrf_scores.keys(),
+            key=lambda chunk_id: rrf_scores[chunk_id],
+            reverse=True,
+        )
+
+
+        logger.info(
+            "Retriever rankings:\n"
+            f"Dense: {dense_ranked_ids[:10]}\n"
+            f"BM25:  {bm25_ranked_ids[:10]}\n"
+            f"RRF:   {ranked_ids[:10]}"
+        )
+
+
+        # ---------------------------------------------------------
+        # Step 9: Map IDs back to chunks
+        # ---------------------------------------------------------
+
+        chunks_by_id = {
+            str(chunk["id"]): chunk
+            for chunk in chunks_data
+        }
+
+
+        # ---------------------------------------------------------
+        # Step 10: Return top 5
+        # ---------------------------------------------------------
+
         retrieved_chunks = []
 
-        for rank, (idx, score) in enumerate(
-            combined_scores[:5]
+        for rank, chunk_id in enumerate(
+            ranked_ids[:5],
+            start=1,
         ):
-            chunk = chunks_data[idx]
+
+            chunk = chunks_by_id.get(chunk_id)
+
+            if not chunk:
+                continue
+
             payload = chunk.get("payload") or {}
 
-            # Normalize citation values to native Python types
             source = str(
-                payload.get("source", "unknown")
+                payload.get(
+                    "source",
+                    "unknown",
+                )
             )
 
             page = payload.get("page")
@@ -249,7 +337,7 @@ def retriever_node(state: AgentState) -> AgentState:
 
             chunk_index = payload.get(
                 "chunk_index",
-                idx,
+                0,
             )
 
             if chunk_index is not None:
@@ -266,19 +354,21 @@ def retriever_node(state: AgentState) -> AgentState:
 
             retrieved_chunks.append(
                 RetrievedChunk(
-                    text=str(
-                        chunk["text"][:500]
-                    ),
+                    # DO NOT truncate
+                    text=str(chunk["text"]),
+
                     citation=citation,
 
-                    # Explicitly convert both scores
-                    # to native Python floats
-                    relevance_score=float(score),
+                    relevance_score=float(
+                        rrf_scores[chunk_id]
+                    ),
+
                     embedding_distance=float(
                         chunk["score"]
                     ),
                 )
             )
+
 
         state["retrieved_chunks"] = retrieved_chunks
 
@@ -323,7 +413,7 @@ def ingest_document(
     
     try:
         # Step 1: Chunk the document
-        chunks = chunk_document(file_content, chunk_size=512, overlap=64)
+        chunks = chunk_document(file_content, chunk_size=1200, overlap=64)
         logger.info(f"Created {len(chunks)} chunks")
         
         # Step 2: Embed chunks
@@ -386,7 +476,7 @@ def ingest_document(
         raise
 
 
-def chunk_document(text: str, chunk_size: int = 512, overlap: int = 64) -> list[str]:
+def chunk_document(text: str, chunk_size: int = 1200, overlap: int = 64) -> list[str]:
     """Simple chunking by character count with overlap."""
     chunks = []
     step = chunk_size - overlap

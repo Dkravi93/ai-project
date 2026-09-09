@@ -47,104 +47,181 @@ Rules:
 """
 
 
+
 def supervisor_node(state: AgentState) -> AgentState:
     """Supervisor node: analyzes query and creates task plan."""
-    logger.info(f"Supervisor: Processing query: {state['query'][:50]}...")
-    
-    # Check if previous agent(s) failed — if so, skip to writer
+
+    logger.info(
+        f"Supervisor: Processing query: {state['query'][:50]}..."
+    )
+
+    # -----------------------------------------
+    # 1. Handle previous failures
+    # -----------------------------------------
     for err in state.get("errors", []):
-        if "Retriever error" in err or "Coder error" in err or "WebSearch error" in err:
-            logger.warning(f"Supervisor: Agent failure detected ({err[:60]}), routing directly to writer")
+        if (
+            "Retriever error" in err
+            or "Coder error" in err
+            or "WebSearch error" in err
+        ):
+            logger.warning(
+                f"Supervisor: Agent failure detected "
+                f"({err[:60]}), routing directly to writer"
+            )
+
             state["plan"] = ["writer"]
-            state.setdefault("attempt_count", 0)
+
             state["agent_trace"].append({
                 "agent": "supervisor",
                 "timestamp": datetime.utcnow().isoformat(),
                 "input_summary": f"Query: {state['query'][:50]}...",
-                "output_summary": f"Fallback plan: writer (agent failure detected)",
+                "output_summary": "Fallback plan: writer",
                 "duration_ms": 0,
                 "token_count": 0,
             })
+
             return state
 
-    # Agents return here after completing a step. Preserve the remaining plan
-    # instead of asking the supervisor to start the same plan again.
+    # -----------------------------------------
+    # 2. Continue existing plan
+    # -----------------------------------------
     if state.get("plan"):
         logger.info(
-            f"Supervisor: Continuing existing plan ({' -> '.join(state['plan'])})",
+            f"Supervisor: Continuing existing plan "
+            f"({' -> '.join(state['plan'])})"
         )
         return state
-    
-    # Initialize LLM
+
+    # -----------------------------------------
+    # 3. IMPORTANT:
+    # Document QA always uses Retriever
+    # -----------------------------------------
+    doc_ids = state.get("doc_ids") or []
+
+    logger.info(
+        f"Supervisor: doc_ids={doc_ids}"
+    )
+
+    if doc_ids:
+        logger.info(
+            "Supervisor: Documents selected. "
+            "Using deterministic document QA plan."
+        )
+
+        state["plan"] = [
+            "retriever",
+            "writer",
+        ]
+
+        state["agent_trace"].append({
+            "agent": "supervisor",
+            "timestamp": datetime.utcnow().isoformat(),
+            "input_summary": f"Query: {state['query'][:50]}...",
+            "output_summary": "Plan: retriever -> writer",
+            "duration_ms": 0,
+            "token_count": 0,
+        })
+
+        return state
+
+    # -----------------------------------------
+    # 4. No documents selected
+    # Let LLM decide
+    # -----------------------------------------
     llm = ChatGroq(
         model=settings.groq_model,
         api_key=settings.groq_api_key,
         temperature=0.3,
     )
-    
-    # Create structured output
+
     structured_llm = llm.with_structured_output(TaskPlan)
-    
-    # Build prompt
-    user_query = state['query']
+
     messages = [
         ("system", SUPERVISOR_SYSTEM),
-        ("user", f"Query: {user_query}"),
+        ("user", f"Query: {state['query']}"),
     ]
-    
+
     try:
         plan = structured_llm.invoke(messages)
-        state['plan'] = plan.steps
-        
-        state['agent_trace'].append({
-            'agent': 'supervisor',
-            'timestamp': datetime.utcnow().isoformat(),
-            'input_summary': f"Query: {user_query[:50]}...",
-            'output_summary': f"Plan: {' -> '.join(plan.steps)}",
-            'duration_ms': 0,
-            'token_count': 0,
+
+        state["plan"] = plan.steps
+
+        state["agent_trace"].append({
+            "agent": "supervisor",
+            "timestamp": datetime.utcnow().isoformat(),
+            "input_summary": f"Query: {state['query'][:50]}...",
+            "output_summary": f"Plan: {' -> '.join(plan.steps)}",
+            "duration_ms": 0,
+            "token_count": 0,
         })
-        
-        logger.info(f"Supervisor: Plan created with {len(plan.steps)} steps")
+
+        logger.info(
+            f"Supervisor: Plan created "
+            f"{' -> '.join(plan.steps)}"
+        )
+
         return state
-        
+
     except Exception as e:
         error_message = str(e)
-        if "tool calling" in error_message.lower() or "tool_use" in error_message.lower():
+
+        if (
+            "tool calling" in error_message.lower()
+            or "tool_use" in error_message.lower()
+        ):
             logger.warning(
                 "Supervisor model does not support tool calling; "
-                "using the document-QA fallback plan"
+                "using document-QA fallback plan"
             )
-            state["plan"] = ["retriever", "writer"]
-            state["agent_trace"].append({
-                "agent": "supervisor",
-                "timestamp": datetime.utcnow().isoformat(),
-                "input_summary": f"Query: {user_query[:50]}...",
-                "output_summary": "Fallback plan: retriever -> writer",
-                "duration_ms": 0,
-                "token_count": 0,
-            })
+
+            state["plan"] = [
+                "retriever",
+                "writer",
+            ]
+
             return state
-        logger.error(f"Supervisor error: {str(e)}")
-        state['errors'].append(f"Supervisor error: {str(e)}")
-        state['plan'] = ['writer']
-        state.setdefault("attempt_count", 0)
+
+        logger.exception("Supervisor error")
+
+        state["errors"].append(
+            f"Supervisor error: {str(e)}"
+        )
+
+        state["plan"] = ["writer"]
+
         return state
 
 
 def route_next_agent(state: AgentState) -> str:
-    """Routing function: determines next agent to execute."""
-    # Bump attempt counter so max-attempts guard actually works
-    state['attempt_count'] = state.get('attempt_count', 0) + 1
-    
-    if state['attempt_count'] > 5:
-        logger.warning("Max attempts (5) reached, routing to writer")
-        return 'writer'
-    
-    if state['plan']:
-        next_agent = state['plan'].pop(0)
-        logger.info(f"Routing to: {next_agent} (attempt {state['attempt_count']})")
+    """Determine next agent."""
+
+    state["attempt_count"] = state.get("attempt_count", 0) + 1
+
+    if state["attempt_count"] > 5:
+        logger.warning("Max attempts reached -> writer")
+        return "writer"
+
+    if state.get("plan"):
+        next_agent = state["plan"].pop(0)
+
+        valid_agents = {
+            "retriever",
+            "coder",
+            "web_search",
+            "writer",
+        }
+
+        if next_agent not in valid_agents:
+            logger.error(
+                f"Invalid agent in plan: {next_agent}"
+            )
+            return "writer"
+
+        logger.info(
+            f"Routing to: {next_agent} "
+            f"(attempt {state['attempt_count']})"
+        )
+
         return next_agent
-    
-    logger.info("Plan complete, routing to writer")
-    return 'writer'
+
+    return "writer"
