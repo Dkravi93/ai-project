@@ -1,0 +1,85 @@
+2026-09-09 10:31:52
+2026-09-09 10:31:52
+2026-09-09 10:31:52
+2026-09-09 10:31:52
+2026-09-09 10:31:52
+2026-09-09 10:31:52
+2026-09-09 10:31:52
+2026-09-09 10:31:52
+2026-09-09 10:31:52
+2026-09-09 10:31:52
+2026-09-09 10:31:52
+2026-09-09 10:31:53 | INFO
+2026-09-09 10:31:53
+2026-09-09 10:31:53
+2026-09-09 10:31:53
+2026-09-09 10:31:53
+2026-09-09 10:31:53
+2026-09-09 10:31:53
+2026-09-09 10:31:53
+2026-09-09 10:31:53
+2026-09-09 10:31:53
+2026-09-09 10:31:53 | INFO
+INFO:
+
+INFO
+127.0.0.1:44176 - "POST /Lngest HTTP/1.1" 200 OK
+INFO
+WARNING
+WARNING
+| WARNING
+
+INFO
+INFO
+WARNING
+INFO
+| INFO
+| INFO
+INFO
+INFO
+INFO
+INFO
+| INFO
+
+INFO
+INFO
+INFO
+INFO
+INFO
+INFO
+INFO
+INFO
+WARNING
+
+"POST /chat HTTP/1.1" 200 OK
+127.0.0.1:56366 -"
+
+apt.main: ingest :254 - V Ingested Vignette - Europe Financtal Analysts.docx: 2 chunks
+
+| api.main:chat:306 - Chat: Sesston 04155840-7cff-4109-b754-3d875cb57d30, Query: What was Labelbox Europe's revenue in 2024 ?..
+guardrails.pii_detector:detect_pii:98 - PII detected: 2 entttles
+guardrails.middleware:check_input:103 - Input PII detected: 2 entitles
+guardrails.pii_detector:redact_pii:131 - PII redacton fallback after Prestdto error: 'dtct' object has no attrtbute 'operator
+
+agents .graph:run_agent_graph: 102 - Starting agent run: What was Labelbox Europe's revenue in 2024 ?...
+agents. supervisor: supervisor_node:52 - Supervtsor: Processtng query: What was Labelbox Europe's revenue in 2024 ?...
+agents . supervisor: supervisor_node: 114 - Supervtsor model does not support tool calling; ustng the document-QA fallback plan
+agents. supervisor:route_next_agent: 146 - Routing to: retrtever (attempt 1)
+agents. retriever: retriever_node: 91 - Retrtever: Searchtng for 'What was Labelbox Europe's revenue in 2024 ?... '
+agents. retriever: retriever_node: 154 - Qdrant score: value=0.6313743498753064 type=float
+agents. retriever:retriever_node: 154 - Qdrant score: value=0.24396719901016023 type=float
+agents. supervisor: supervisor_node:52 - Supervisor: Processtng query: What was Labelbox Europe's revenue in 2024 ?...
+agents. supervisor: supervisor_node:73 - Supervtsor: Continutng extsting plan (writer)
+agents. supervisor:route_next_agent: 146 - Routing to: writer (attempt 1)
+agents.writer:writer_node:42 - Wrtter: Synthestzing answer ...
+agents.writer:writer_node:82 - Wrtter DRAFT: '0.003943851683288813'
+agents.writer:writer_node:86 - Wrtter DRAFT Length: 20
+agents.writer:writer_node: 116 - Wrtter: Reflectlon: '0.001665150048211217'
+agents.writer:writer_node: 117 - Wrtter: Draft: '0.003943851683288813'
+agents.writer:writer_node:118 - Wrtter: Reflectton: '0.001665150048211217'
+| agents.writer:writer_node: 127 - Writer: Reftntng answer ...
+| agents.writer:writer_node: 199 - Writer: Flnal answer ready (20 chars)
+| agents . graph: run_agent_graph: 156 - ? Agent run completed in 953ms
+| api.main:chat:326 - GRAPH RESULT: flnal_answer='0.002605196787044406' confLdence=0.85 chunks=2 errors=[]
+guardrails.middleware:check_output: 176 - Output BLOCKED - halluctnattons detected: ['0.002605196787044406' ]
+api.main:chat:413 - / Chat completed: 85.00% confLdence

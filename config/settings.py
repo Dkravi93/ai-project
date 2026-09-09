@@ -2,6 +2,7 @@
 Configuration module for AgentOps Hub.
 Loads environment variables and provides settings across the application.
 """
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 import os
@@ -11,7 +12,7 @@ class Settings(BaseSettings):
     # LLM & API Keys
     groq_api_key: str = ""
     tavily_api_key: str = ""
-    groq_model: str = ""
+    groq_model: str = "openai/gpt-oss-20b"
 
     # Qdrant Vector Database
     qdrant_mode: str = "remote"  # "remote" for server, "embedded" for in-process
@@ -67,6 +68,17 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+
+    @field_validator("groq_model")
+    @classmethod
+    def validate_groq_model(cls, value: str) -> str:
+        """Reject classifier-only models in chat-agent configuration."""
+        if "prompt-guard" in value.lower():
+            raise ValueError(
+                "GROQ_MODEL must be a chat-capable model; "
+                "meta-llama/*prompt-guard* models return classification scores."
+            )
+        return value
 
 
 @lru_cache()

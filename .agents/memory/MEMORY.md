@@ -1,0 +1,1 @@
+- [Groq model roles](groq-model-roles.md) — prompt-guard models return classification probabilities and must never be configured as chat writers.

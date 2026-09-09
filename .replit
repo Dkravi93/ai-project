@@ -38,6 +38,7 @@ LANGSMITH_PROJECT = "agentops-hub"
 PROMETHEUS_SCRAPE_PORT = "8001"
 PRESIDIO_OPERATORS_ENABLED = "true"
 DETOXIFY_BATCH_SIZE = "32"
+GROQ_MODEL = "openai/gpt-oss-20b"
 
 [workflows]
 runButton = "Project"

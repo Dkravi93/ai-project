@@ -8,7 +8,21 @@ from config.settings import get_settings
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage
 
+import re
+
 settings = get_settings()
+
+def extract_claims(text: str) -> list[str]:
+    """
+    Extract simple sentence-level claims from generated text.
+    """
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+
+    return [
+        sentence.strip()
+        for sentence in sentences
+        if len(sentence.strip()) > 10
+    ]
 
 
 def score_faithfulness(
@@ -29,10 +43,14 @@ def score_faithfulness(
         Tuple of (score [0-1], details_dict)
     """
     try:
-        llm = ChatGroq(model=settings.groq_model, temperature=0)
+        llm = ChatGroq(
+            model=settings.groq_model,
+            api_key=settings.groq_api_key,
+            temperature=0,
+        )
         
         if not queries:
-            queries = [generated_text[:100]]  # Use first 100 chars as query
+            queries = extract_claims(generated_text)
         
         # Faithfulness check: for each sentence in generated text,
         # verify it can be inferred from context
@@ -42,20 +60,28 @@ def score_faithfulness(
         faithfulness_details = []
         
         for query in queries:
-            prompt = f"""Given this context:
-{context}
+            prompt = f"""You are checking whether a claim is supported by a source document.
 
-Can the following statement be inferred from the context?
-Statement: {query}
+            SOURCE CONTEXT:
+            {context}
 
-Answer with ONLY 'yes' or 'no'."""
+            CLAIM:
+            {query}
+
+            Determine whether the claim is directly supported by the source context.
+
+            Respond with exactly one word:
+            SUPPORTED
+            or
+            UNSUPPORTED
+            """
             
             try:
                 msg = HumanMessage(content=prompt)
                 response = llm.invoke([msg])
-                answer = response.content.strip().lower()
-                
-                is_faithful = "yes" in answer
+                answer = response.content.strip().upper()
+
+                is_faithful = answer == "SUPPORTED"
                 if is_faithful:
                     faithful_sentences += 1
                 

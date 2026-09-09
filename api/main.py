@@ -133,11 +133,6 @@ async def preload_models():
     """Pre-load heavy ML models at startup to avoid first-request latency."""
     import asyncio
     from config.logger import logger
-    import os
-
-    if os.environ.get("SKIP_MODEL_LOADING", "false").lower() == "true":
-        logger.info("Model pre-loading skipped (SKIP_MODEL_LOADING=true)")
-        return
     
     logger.info("Pre-loading models at startup...")
     
@@ -154,8 +149,8 @@ async def preload_models():
     def _load_detoxify():
         try:
             from detoxify import Detoxify
-            _ = Detoxify(settings.detoxify_model_name, device="cpu")
-            logger.info(f"Detoxify ({settings.detoxify_model_name}) loaded")
+            _ = Detoxify("multilingual", device="cpu")
+            logger.info("Detoxify (multilingual) loaded")
         except Exception as e:
             logger.warning(f"Detoxify loading skipped: {e}")
     
@@ -328,6 +323,13 @@ async def chat(
             doc_ids=doc_ids or [],
             trace_id=trace_id,
         )
+        logger.info(
+            f"GRAPH RESULT: "
+            f"final_answer={final_state.get('final_answer')!r} "
+            f"confidence={final_state.get('confidence')!r} "
+            f"chunks={len(final_state.get('retrieved_chunks', []))} "
+            f"errors={final_state.get('errors')!r}"
+        )
         
         # Ensure final_state is a dict for safe access
         if final_state is None:
@@ -349,6 +351,21 @@ async def chat(
         
         # Use cleaned answer
         final_answer = output_check.cleaned_text or answer
+        if not answer:
+            errors = final_state.get("errors", [])
+
+            logger.error(
+                "No final answer produced. errors=%s",
+                errors,
+            )
+
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "message": "Agent did not produce a final answer",
+                    "errors": errors,
+                },
+            )
         
         # Format citations (None-safe)
         citations = []

@@ -152,9 +152,8 @@ def retriever_node(state: AgentState) -> AgentState:
             text = payload.get("text", "")
             raw_score = result.get("score", 0.0)
             logger.info(
-                "Qdrant score: value=%r type=%s",
-                raw_score,
-                type(raw_score).__name__,
+                f"Qdrant score: value={raw_score!r} "
+                f"type={type(raw_score).__name__}"
             )
 
             # Convert NumPy / other numeric types to native Python float
