@@ -44,10 +44,12 @@ class Settings(BaseSettings):
     embedding_cache_dir: str = "./models"
 
     # Guardrails
+    spacy_model: str = "en_core_web_sm"
     presidio_operators_enabled: bool = True
     detoxify_batch_size: int = 32
     ragas_threshold: float = 0.7
     pii_threshold: float = 0.5
+    detoxify_model_name: str = "original"
     toxicity_threshold: float = 0.6
     severe_toxicity_threshold: float = 0.8
     prompt_injection_threshold: float = 0.7

@@ -4,6 +4,9 @@ Detects harmful, offensive, or toxic content in text.
 """
 from typing import Dict, Tuple
 from config.logger import logger
+from config.settings import get_settings
+
+settings = get_settings()
 
 try:
     from detoxify import Detoxify
@@ -21,7 +24,7 @@ def _get_model():
     if Detoxify is None:
         return None
     if _detoxify_model is None:
-        _detoxify_model = Detoxify("multilingual", device="cpu")
+        _detoxify_model = Detoxify(settings.detoxify_model_name, device="cpu")
     return _detoxify_model
 
 

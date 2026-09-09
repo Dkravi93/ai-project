@@ -3,6 +3,7 @@
 ## ?? Quick Start
 
 ### 1. Clone & Setup Environment
+
 ```bash
 cd ai-project
 python -m venv venv
@@ -10,11 +11,13 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
 ### 2. Install Dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
 ### 3. Configure Environment
+
 ```bash
 cp .env.example .env
 # Edit .env and fill in API keys:
@@ -24,11 +27,13 @@ cp .env.example .env
 ```
 
 ### 4. Start Services (Docker)
+
 ```bash
 docker-compose up -d
 ```
 
 Services will be available at:
+
 - **API**: http://localhost:8000
 - **API Docs**: http://localhost:8000/docs
 - **Qdrant**: http://localhost:6333
@@ -37,11 +42,13 @@ Services will be available at:
 - **Grafana**: http://localhost:3000 (admin:admin)
 
 ### 5. Run the API (without Docker)
+
 ```bash
 uvicorn api.main:app --reload
 ```
 
 ### 6. Run the Streamlit UI
+
 ```bash
 streamlit run ui/app.py
 ```
@@ -51,43 +58,43 @@ streamlit run ui/app.py
 ```
 agentops-hub/
 +-- api/                 # FastAPI application
-¦   +-- main.py         # Main app & routes
-¦   +-- middleware/      # Auth, rate limiting, etc.
-¦   +-- routers/         # API route modules
+ï¿½   +-- main.py         # Main app & routes
+ï¿½   +-- middleware/      # Auth, rate limiting, etc.
+ï¿½   +-- routers/         # API route modules
 +-- agents/              # LangGraph agents
-¦   +-- state.py        # Shared state schema
-¦   +-- supervisor.py   # Orchestration
-¦   +-- retriever.py    # RAG retriever
-¦   +-- coder.py        # Code executor
-¦   +-- web_search.py   # Web search agent
-¦   +-- writer.py       # Answer synthesis
+ï¿½   +-- state.py        # Shared state schema
+ï¿½   +-- supervisor.py   # Orchestration
+ï¿½   +-- retriever.py    # RAG retriever
+ï¿½   +-- coder.py        # Code executor
+ï¿½   +-- web_search.py   # Web search agent
+ï¿½   +-- writer.py       # Answer synthesis
 +-- rag/                 # Retrieval-Augmented Generation
-¦   +-- ingestion.py    # Document loading & chunking
-¦   +-- embeddings.py   # Embedding pipeline
-¦   +-- retrieval.py    # Hybrid search
+ï¿½   +-- ingestion.py    # Document loading & chunking
+ï¿½   +-- embeddings.py   # Embedding pipeline
+ï¿½   +-- retrieval.py    # Hybrid search
 +-- guardrails/          # Security & compliance
-¦   +-- injection.py    # Prompt injection check
-¦   +-- pii.py         # PII detection & scrubbing
-¦   +-- toxicity.py    # Toxicity detection
-¦   +-- ragas.py       # Hallucination detection
+ï¿½   +-- injection.py    # Prompt injection check
+ï¿½   +-- pii.py         # PII detection & scrubbing
+ï¿½   +-- toxicity.py    # Toxicity detection
+ï¿½   +-- ragas.py       # Hallucination detection
 +-- eval/               # Evaluation framework
-¦   +-- metrics.py     # RAGAS metrics
-¦   +-- batch.py       # Batch evaluation jobs
+ï¿½   +-- metrics.py     # RAGAS metrics
+ï¿½   +-- batch.py       # Batch evaluation jobs
 +-- observability/      # Monitoring & logging
-¦   +-- mlflow.py      # MLflow integration
-¦   +-- langsmith.py   # LangSmith tracing
-¦   +-- prometheus.py  # Prometheus metrics
+ï¿½   +-- mlflow.py      # MLflow integration
+ï¿½   +-- langsmith.py   # LangSmith tracing
+ï¿½   +-- prometheus.py  # Prometheus metrics
 +-- ui/                 # Streamlit frontend
-¦   +-- app.py         # Main UI app
-¦   +-- pages/         # Streamlit pages
-¦   +-- components/    # Reusable UI components
+ï¿½   +-- app.py         # Main UI app
+ï¿½   +-- pages/         # Streamlit pages
+ï¿½   +-- components/    # Reusable UI components
 +-- tests/              # Test suite
-¦   +-- unit/          # Unit tests
-¦   +-- integration/   # Integration tests
-¦   +-- eval/          # Evaluation tests
+ï¿½   +-- unit/          # Unit tests
+ï¿½   +-- integration/   # Integration tests
+ï¿½   +-- eval/          # Evaluation tests
 +-- config/             # Configuration
-¦   +-- settings.py    # Settings management
-¦   +-- logger.py      # Logging setup
+ï¿½   +-- settings.py    # Settings management
+ï¿½   +-- logger.py      # Logging setup
 +-- logs/               # Application logs
 +-- requirements.txt    # Python dependencies
 +-- docker-compose.yml  # Local services
@@ -99,6 +106,7 @@ agentops-hub/
 ## ?? Development
 
 ### Running Tests
+
 ```bash
 pytest                  # Run all tests
 pytest -v              # Verbose output
@@ -107,6 +115,7 @@ pytest tests/unit     # Only unit tests
 ```
 
 ### Linting & Formatting
+
 ```bash
 ruff check .           # Lint with ruff
 black .                # Format with black
@@ -116,6 +125,7 @@ mypy .                 # Type check with mypy
 ### Docker Compose Services
 
 Start individual services:
+
 ```bash
 docker-compose up api         # FastAPI only
 docker-compose up qdrant      # Qdrant only
@@ -123,6 +133,7 @@ docker-compose up postgres    # Database only
 ```
 
 View logs:
+
 ```bash
 docker-compose logs api       # API logs
 docker-compose logs -f api    # Follow logs
@@ -131,6 +142,7 @@ docker-compose logs -f api    # Follow logs
 ## ?? Architecture
 
 ### 6-Layer Design
+
 1. **UI Layer** (Streamlit): File upload, chat interface, trace panel
 2. **API Layer** (FastAPI): REST endpoints, auth, rate limiting
 3. **Agent Orchestration** (LangGraph): Multi-agent state machine
@@ -139,6 +151,7 @@ docker-compose logs -f api    # Follow logs
 6. **Observability** (MLflow, LangSmith): Metrics, traces, monitoring
 
 ### Request Lifecycle
+
 1. User query ? Streamlit UI
 2. FastAPI input guardrails (PII, injection, token budget)
 3. LangGraph supervisor routes to agents

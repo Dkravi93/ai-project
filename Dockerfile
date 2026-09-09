@@ -14,8 +14,15 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 
 # Install Python dependencies
+# CRITICAL: presidio-analyzer depends on en-core-web-lg (~400 MB).
+# We install everything else, then presidio with --no-deps.
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    python -c "with open('requirements.txt') as f: open('/tmp/req2.txt','w').write(''.join(l for l in f if not l.strip().startswith('presidio')))" && \
+    pip install --no-cache-dir -r /tmp/req2.txt && \
+    pip install --no-cache-dir spacy && \
+    python -m spacy download en_core_web_sm && \
+    pip install --no-cache-dir --no-deps presidio-analyzer presidio-anonymizer && \
+    python -c "import spacy; nlp=spacy.load('en_core_web_sm'); print('OK: small model loaded, vocab size:', len(nlp.vocab))"
 
 # Copy application
 COPY . .

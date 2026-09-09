@@ -12,6 +12,7 @@ settings = get_settings()
 try:
     from presidio_analyzer import AnalyzerEngine
     from presidio_anonymizer import AnonymizerEngine
+    from presidio_analyzer.nlp_engine import NlpEngineProvider
 except Exception as e:  # pragma: no cover - depends on optional local models
     AnalyzerEngine = None
     AnonymizerEngine = None
