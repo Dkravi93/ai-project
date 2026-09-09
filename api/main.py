@@ -3,11 +3,10 @@ FastAPI main application entry point.
 Defines all routes and middleware for AgentOps Hub API.
 Includes guardrails for input/output validation.
 """
-from typing import Optional
+from typing import Any, Optional, cast
 from fastapi import FastAPI, UploadFile, File, Header, HTTPException, Body, Query, Form
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware import Middleware
 from starlette.routing import Mount
 from pydantic import BaseModel, Field
 from prometheus_client import (
@@ -148,7 +147,9 @@ async def preload_models():
     logger.info("Model pre-loading complete")
 # ==================== CORS Middleware ====================
 app.add_middleware(
-    CORSMiddleware,
+    # Starlette's current generic middleware protocol is stricter than the
+    # runtime-compatible CORSMiddleware class exposed by FastAPI.
+    cast(Any, CORSMiddleware),
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
