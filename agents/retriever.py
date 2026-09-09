@@ -86,30 +86,50 @@ def retriever_node(state: AgentState) -> AgentState:
             logger.warning("Retriever: Skipping (previously failed)")
             state["retrieved_chunks"] = []
             return state
-    
-    query = state['query']
+
+    query = state["query"]
     logger.info(f"Retriever: Searching for '{query[:50]}...'")
-    
+
     try:
         # Step 1: Embed the query
         query_embedding = embed_query(query)
-        
+
         # Step 2: Dense retrieval from Qdrant (top 20)
         logger.debug("Retriever: Performing dense retrieval...")
 
         # If doc_ids were provided upstream, restrict retrieval to those documents.
         doc_ids = state.get("doc_ids") or []
         qdrant_filter = None
+
         if doc_ids:
-            # Use MatchAny because doc_ids is a list of strings
             try:
-                from qdrant_client.models import Filter as QdrantFilter, FieldCondition, MatchAny
-                qdrant_filter = QdrantFilter(
-                    must=[FieldCondition(key="doc_id", match=MatchAny(any=doc_ids))]
+                from qdrant_client.models import (
+                    Filter as QdrantFilter,
+                    FieldCondition,
+                    MatchAny,
                 )
+
+                qdrant_filter = QdrantFilter(
+                    must=[
+                        FieldCondition(
+                            key="doc_id",
+                            match=MatchAny(any=doc_ids),
+                        )
+                    ]
+                )
+
             except ImportError:
                 # Fallback: dict format that Qdrant Pydantic models understand
-                qdrant_filter = {"must": [{"key": "doc_id", "match": {"any": doc_ids}}]}
+                qdrant_filter = {
+                    "must": [
+                        {
+                            "key": "doc_id",
+                            "match": {
+                                "any": doc_ids
+                            },
+                        }
+                    ]
+                }
 
         search_results = qdrant_mgr.search(
             collection_name=settings.qdrant_collection_name,
@@ -117,82 +137,166 @@ def retriever_node(state: AgentState) -> AgentState:
             limit=20,
             query_filter=qdrant_filter,
         )
-        
+
         if not search_results:
             logger.warning("Retriever: No results found in Qdrant")
-            state['retrieved_chunks'] = []
+            state["retrieved_chunks"] = []
             return state
-        
+
         # Step 3: Extract texts for BM25 re-ranking
         chunks_data = []
+
         for result in search_results:
             payload = result.get("payload") or {}
+
             text = payload.get("text", "")
-            chunks_data.append({
-                'id': result.get("id"),
-                'text': text,
-                'score': result.get("score", 0.0),
-                'payload': payload,
-            })
-        
+            raw_score = result.get("score", 0.0)
+            logger.info(
+                "Qdrant score: value=%r type=%s",
+                raw_score,
+                type(raw_score).__name__,
+            )
+
+            # Convert NumPy / other numeric types to native Python float
+            score = float(raw_score)
+
+            chunks_data.append(
+                {
+                    "id": result.get("id"),
+                    "text": str(text),
+                    "score": score,
+                    "payload": payload,
+                }
+            )
+
         # Step 4: BM25 re-ranking
         logger.debug("Retriever: Applying BM25 re-ranking...")
-        texts = [c['text'] for c in chunks_data]
+
+        texts = [c["text"] for c in chunks_data]
+
         if BM25Okapi is not None:
-            bm25 = BM25Okapi([text.split() for text in texts])
+            bm25 = BM25Okapi(
+                [text.split() for text in texts]
+            )
+
             query_tokens = query.lower().split()
-            bm25_scores = bm25.get_scores(query_tokens)
+
+            # Convert NumPy array to native Python list
+            bm25_scores = bm25.get_scores(query_tokens).tolist()
+
         else:
             bm25_scores = lexical_scores(texts, query)
-        
+
+            # Make sure fallback scores are native Python floats
+            bm25_scores = [
+                float(score)
+                for score in bm25_scores
+            ]
+
         # Combine scores (60% dense, 40% BM25)
         combined_scores = []
+
+        max_bm25_score = max(bm25_scores) if bm25_scores else 0.0
+
         for i, chunk in enumerate(chunks_data):
-            # Normalize scores
-            dense_score = (chunk['score'] + 1) / 2  # Map [-1, 1] to [0, 1]
-            bm25_score = bm25_scores[i] / (max(bm25_scores) + 1e-6)  # Normalize
-            combined = 0.6 * dense_score + 0.4 * bm25_score
-            combined_scores.append((i, combined))
-        
+            # Normalize dense score
+            dense_score = (
+                float(chunk["score"]) + 1.0
+            ) / 2.0
+
+            # Normalize BM25 score
+            bm25_score = (
+                float(bm25_scores[i])
+                / (float(max_bm25_score) + 1e-6)
+            )
+
+            # Ensure final score is native Python float
+            combined = float(
+                0.6 * dense_score +
+                0.4 * bm25_score
+            )
+
+            combined_scores.append(
+                (i, combined)
+            )
+
         # Sort by combined score
-        combined_scores.sort(key=lambda x: x[1], reverse=True)
-        
+        combined_scores.sort(
+            key=lambda x: x[1],
+            reverse=True,
+        )
+
         # Step 5: Return top 5 with citations
         retrieved_chunks = []
-        for rank, (idx, score) in enumerate(combined_scores[:5]):
+
+        for rank, (idx, score) in enumerate(
+            combined_scores[:5]
+        ):
             chunk = chunks_data[idx]
-            citation = Citation(
-                source=chunk['payload'].get('source', 'unknown'),
-                page=chunk['payload'].get('page', None),
-                chunk_index=chunk['payload'].get('chunk_index', idx),
+            payload = chunk.get("payload") or {}
+
+            # Normalize citation values to native Python types
+            source = str(
+                payload.get("source", "unknown")
             )
-            retrieved_chunks.append(RetrievedChunk(
-                text=chunk['text'][:500],  # Limit text length
-                citation=citation,
-                relevance_score=score,
-                embedding_distance=chunk['score'],
-            ))
-        
-        state['retrieved_chunks'] = retrieved_chunks
-        
-        logger.info(f"Retriever: Found {len(retrieved_chunks)} relevant chunks")
-        state['agent_trace'].append({
-            'agent': 'retriever',
-            'timestamp': datetime.utcnow().isoformat(),
-            'input_summary': f"Query: {query[:50]}...",
-            'output_summary': f"Retrieved {len(retrieved_chunks)} chunks",
-            'duration_ms': 0,
-            'token_count': 0,
-        })
-        
-        return state
-        
-    except Exception as e:
-        logger.error(f"Retriever error: {str(e)}")
-        state['errors'].append(f"Retriever error: {str(e)}")
-        state['retrieved_chunks'] = []
+
+            page = payload.get("page")
+
+            if page is not None:
+                try:
+                    page = int(page)
+                except (TypeError, ValueError):
+                    pass
+
+            chunk_index = payload.get(
+                "chunk_index",
+                idx,
+            )
+
+            if chunk_index is not None:
+                try:
+                    chunk_index = int(chunk_index)
+                except (TypeError, ValueError):
+                    pass
+
+            citation = Citation(
+                source=source,
+                page=page,
+                chunk_index=chunk_index,
+            )
+
+            retrieved_chunks.append(
+                RetrievedChunk(
+                    text=str(
+                        chunk["text"][:500]
+                    ),
+                    citation=citation,
+
+                    # Explicitly convert both scores
+                    # to native Python floats
+                    relevance_score=float(score),
+                    embedding_distance=float(
+                        chunk["score"]
+                    ),
+                )
+            )
+
+        state["retrieved_chunks"] = retrieved_chunks
+
         return state
 
+    except Exception as e:
+        logger.exception(
+            "Retriever error"
+        )
+
+        state["errors"].append(
+            f"Retriever error: {str(e)}"
+        )
+
+        state["retrieved_chunks"] = []
+
+        return state
 
 def ingest_document(
     file_path: str,

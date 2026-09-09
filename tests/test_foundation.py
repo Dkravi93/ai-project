@@ -4,6 +4,7 @@ from io import BytesIO
 import pytest
 
 from api.main import extract_upload_text
+from agents.supervisor import supervisor_node
 from config.settings import get_settings
 from guardrails.injection_detector import detect_prompt_injection
 from guardrails.middleware import GuardrailsMiddleware
@@ -51,6 +52,18 @@ def test_extract_upload_text_reads_docx_without_shadowing_bytesio():
         "Quarterly financial analysis\n"
         "Revenue increased by twelve percent."
     )
+
+
+def test_supervisor_preserves_remaining_plan_after_agent_step():
+    state = {
+        "query": "What was the revenue?",
+        "plan": ["writer"],
+        "errors": [],
+        "agent_trace": [],
+    }
+
+    assert supervisor_node(state) is state
+    assert state["plan"] == ["writer"]
 
 
 def test_prompt_injection_detector_blocks_instruction_override():

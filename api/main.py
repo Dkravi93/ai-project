@@ -102,24 +102,22 @@ def extract_upload_text(filename: str, content: bytes) -> str:
 
     if suffix == "pdf":
         try:
-            from importlib import import_module
-            pymupdf = import_module("pymupdf")
+            import fitz
             text_parts = []
-            with pymupdf.open(stream=content, filetype="pdf") as doc:
+            with fitz.open(stream=content, filetype="pdf") as doc:
                 for page in doc:
                     text_parts.append(page.get_text())
             result = "\n".join(text_parts)
-            if result.strip():
+            if len(result.strip()) > 50:
                 return result
         except ImportError:
             pass
         except Exception as e:
             pass
         try:
-            from importlib import import_module
-            pdfminer_extract = import_module("pdfminer.high_level").extract_text
+            from pdfminer.high_level import extract_text as pdfminer_extract
             result = pdfminer_extract(BytesIO(content))
-            if result.strip():
+            if len(result.strip()) > 50:
                 return result
         except ImportError:
             pass
@@ -264,7 +262,7 @@ async def ingest(
             "source": filename,
             "guardrails": {
                 "pii_detected": input_check.pii_detected,
-                "toxicity_score": input_check.toxicity_score,
+                "toxicity_score": float(input_check.toxicity_score),
             }
         }
 
@@ -358,11 +356,17 @@ async def chat(
                 "page": cit.get('page'),
                 "chunk": cit.get('chunk_index'),
             })
+        confidence = final_state.get("confidence")
+
+        if confidence is None:
+            confidence = 0.0
+        else:
+            confidence = float(confidence)
         
         response = {
             "status": "success",
             "answer": final_answer,
-            "confidence": final_state.get('confidence', 0.0),
+            "confidence": confidence,
             "citations": citations,
             "agent_trace": [
                 {
@@ -392,7 +396,7 @@ async def chat(
         raise
     except Exception as e:
         CHAT_REQUESTS.labels(status="error").inc()
-        logger.error(f"Chat error: {str(e)}")
+        # logger.error(f"Chat error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Query execution failed: {str(e)}")
 # ==================== Qdrant Collection Init ====================
 @app.post("/api/admin/init-collection")

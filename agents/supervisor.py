@@ -66,6 +66,14 @@ def supervisor_node(state: AgentState) -> AgentState:
                 "token_count": 0,
             })
             return state
+
+    # Agents return here after completing a step. Preserve the remaining plan
+    # instead of asking the supervisor to start the same plan again.
+    if state.get("plan"):
+        logger.info(
+            f"Supervisor: Continuing existing plan ({' -> '.join(state['plan'])})",
+        )
+        return state
     
     # Initialize LLM
     llm = ChatGroq(

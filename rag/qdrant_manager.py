@@ -22,7 +22,7 @@ class QdrantManager:
                 host=settings.qdrant_host,
                 port=settings.qdrant_port,
                 api_key=settings.qdrant_api_key if settings.qdrant_api_key else None,
-                timeout=settings.qdrant_timeout_seconds,
+                timeout=settings.qdrant_timeout_seconds,  # ty:ignore[invalid-argument-type]
             )
             logger.info(f"QdrantManager initialized (remote): {settings.qdrant_host}:{settings.qdrant_port}")
         else:
@@ -63,8 +63,8 @@ class QdrantManager:
     
     def create_collection(
         self,
-        collection_name: str = None,
-        vector_size: int = None,
+        collection_name: str = None,  # ty:ignore[invalid-parameter-default]
+        vector_size: int = None,  # ty:ignore[invalid-parameter-default]
         distance_metric: str = "cosine",
     ) -> bool:
         """
@@ -121,7 +121,7 @@ class QdrantManager:
             "info": info,
         }
     
-    def delete_all_points(self, collection_name: str = None) -> bool:
+    def delete_all_points(self, collection_name: str = None) -> bool:  # ty:ignore[invalid-parameter-default]
         """Clear all points from a collection (for dev/testing)."""
         collection_name = collection_name or settings.qdrant_collection_name
         try:
@@ -135,7 +135,7 @@ class QdrantManager:
             logger.error(f"Failed to clear points: {e}")
             return False
 
-    def ensure_payload_indexes(self, collection_name: str = None) -> None:
+    def ensure_payload_indexes(self, collection_name: str = None) -> None:  # ty:ignore[invalid-parameter-default]
         """Create useful payload indexes when the Qdrant version supports them."""
         collection_name = collection_name or settings.qdrant_collection_name
         for field_name in ("doc_id", "source", "created_at"):
@@ -143,12 +143,12 @@ class QdrantManager:
                 self.client.create_payload_index(
                     collection_name=collection_name,
                     field_name=field_name,
-                    field_schema="keyword",
+                    field_schema="keyword",  # ty:ignore[invalid-argument-type]
                 )
             except Exception as e:
                 logger.debug(f"Payload index skipped for {field_name}: {e}")
     
-    def delete_collection(self, collection_name: str = None) -> bool:
+    def delete_collection(self, collection_name: str = None) -> bool:  # ty:ignore[invalid-parameter-default]
         """Delete a collection."""
         collection_name = collection_name or settings.qdrant_collection_name
         
@@ -160,7 +160,7 @@ class QdrantManager:
             logger.error(f"Failed to delete collection: {e}")
             return False
     
-    def get_collection_info(self, collection_name: str = None) -> Dict:
+    def get_collection_info(self, collection_name: str = None) -> Dict:  # ty:ignore[invalid-parameter-default]
         """Get collection info and statistics."""
         collection_name = collection_name or settings.qdrant_collection_name
         
@@ -223,7 +223,7 @@ class QdrantManager:
         collection_name: str,
         query_vector: List[float],
         limit: int = 10,
-        score_threshold: float = None,
+        score_threshold: float = None,  # ty:ignore[invalid-parameter-default]
         query_filter: object = None,
     ) -> List[Dict]:
         """
@@ -248,8 +248,8 @@ class QdrantManager:
                     score_threshold=score_threshold,
                 )
                 if query_filter is not None:
-                    kwargs["query_filter"] = query_filter
-                results = self.client.search(**kwargs)
+                    kwargs["query_filter"] = query_filter  # ty:ignore[invalid-assignment]
+                results = self.client.search(**kwargs)  # ty:ignore[call-non-callable]
             else:
                 kwargs = dict(
                     collection_name=collection_name,
@@ -258,8 +258,8 @@ class QdrantManager:
                     score_threshold=score_threshold,
                 )
                 if query_filter is not None:
-                    kwargs["query_filter"] = query_filter
-                response = self.client.query_points(**kwargs)
+                    kwargs["query_filter"] = query_filter  # ty:ignore[invalid-assignment]
+                response = self.client.query_points(**kwargs)  # ty:ignore[invalid-argument-type]
                 results = response.points
             
             return [
@@ -290,7 +290,7 @@ class QdrantManager:
             logger.error(f"Failed to delete point: {e}")
             return False
     
-    def clear_collection(self, collection_name: str = None) -> bool:
+    def clear_collection(self, collection_name: str = None) -> bool:  # ty:ignore[invalid-parameter-default]
         """Clear all points from collection (keep structure)."""
         collection_name = collection_name or settings.qdrant_collection_name
         

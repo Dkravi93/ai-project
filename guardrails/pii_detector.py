@@ -78,7 +78,7 @@ def detect_pii(text: str, threshold: float = 0.5) -> Tuple[bool, list, str]:
         if analyzer is None:
             return _fallback_detect(text)
 
-        results = analyzer.analyze(text=text, language="en", threshold=threshold)
+        results = analyzer.analyze(text=text, language="en", score_threshold=threshold)
         
         if not results:
             logger.debug("No PII detected")
@@ -112,7 +112,7 @@ def redact_pii(text: str, threshold: float = 0.5) -> str:
                 redacted = pattern.sub(f"<{entity_type}>", redacted)
             return redacted
 
-        results = analyzer.analyze(text=text, language="en", threshold=threshold)
+        results = analyzer.analyze(text=text, language="en", score_threshold=threshold)
         
         if not results:
             return text
