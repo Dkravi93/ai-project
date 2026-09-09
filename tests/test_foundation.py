@@ -1,5 +1,9 @@
+import zipfile
+from io import BytesIO
+
 import pytest
 
+from api.main import extract_upload_text
 from config.settings import get_settings
 from guardrails.injection_detector import detect_prompt_injection
 from guardrails.middleware import GuardrailsMiddleware
@@ -26,6 +30,27 @@ class FakeQdrantClient:
 
 def test_settings_include_embedding_dimension():
     assert get_settings().embedding_dim == 384
+
+
+def test_extract_upload_text_reads_docx_without_shadowing_bytesio():
+    document_xml = b"""\
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+          <w:body>
+            <w:p><w:r><w:t>Quarterly financial analysis</w:t></w:r></w:p>
+            <w:p><w:r><w:t>Revenue increased by twelve percent.</w:t></w:r></w:p>
+          </w:body>
+        </w:document>
+    """
+    content = BytesIO()
+    with zipfile.ZipFile(content, "w") as archive:
+        archive.writestr("word/document.xml", document_xml)
+
+    extracted = extract_upload_text("report.docx", content.getvalue())
+
+    assert extracted == (
+        "Quarterly financial analysis\n"
+        "Revenue increased by twelve percent."
+    )
 
 
 def test_prompt_injection_detector_blocks_instruction_override():

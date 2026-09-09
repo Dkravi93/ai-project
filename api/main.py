@@ -100,7 +100,6 @@ def extract_upload_text(filename: str, content: bytes) -> str:
             pass
         try:
             from pdfminer.high_level import extract_text as pdfminer_extract
-            from io import BytesIO
             result = pdfminer_extract(BytesIO(content))
             if len(result.strip()) > 50:
                 return result
