@@ -67,6 +67,23 @@ class ChatRequest(BaseModel):
     query: str = Field(..., min_length=3, max_length=2000)
     session_id: Optional[str] = None
     doc_ids: list[str] = Field(default_factory=list)
+
+
+def _json_safe(value):
+    """Convert third-party scalar values into JSON-serializable primitives."""
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return _json_safe(item())
+        except (TypeError, ValueError):
+            pass
+    return value
+
+
 def extract_upload_text(filename: str, content: bytes) -> str:
     """Extract text from supported upload types."""
     suffix = (filename or "").lower().rsplit(".", 1)[-1]
@@ -85,22 +102,24 @@ def extract_upload_text(filename: str, content: bytes) -> str:
 
     if suffix == "pdf":
         try:
-            import fitz
+            from importlib import import_module
+            pymupdf = import_module("pymupdf")
             text_parts = []
-            with fitz.open(stream=content, filetype="pdf") as doc:
+            with pymupdf.open(stream=content, filetype="pdf") as doc:
                 for page in doc:
                     text_parts.append(page.get_text())
             result = "\n".join(text_parts)
-            if len(result.strip()) > 50:
+            if result.strip():
                 return result
         except ImportError:
             pass
         except Exception as e:
             pass
         try:
-            from pdfminer.high_level import extract_text as pdfminer_extract
+            from importlib import import_module
+            pdfminer_extract = import_module("pdfminer.high_level").extract_text
             result = pdfminer_extract(BytesIO(content))
-            if len(result.strip()) > 50:
+            if result.strip():
                 return result
         except ImportError:
             pass
@@ -212,8 +231,9 @@ async def ingest(
     try:
         # Read file content
         content = await file.read()
+        filename = file.filename or "uploaded-document"
         
-        text_content = extract_upload_text(file.filename, content)
+        text_content = extract_upload_text(filename, content)
         
         # Run input guardrails
         input_check = await guardrails.check_input(text_content[:500])
@@ -227,13 +247,13 @@ async def ingest(
         
         # Ingest to Qdrant
         result = ingest_document(
-            file_path=file.filename,
+            file_path=filename,
             file_content=text_to_ingest,
             doc_id=doc_id,
-            source_name=file.filename,
+            source_name=filename,
         )
         
-        logger.info(f"✓ Ingested {file.filename}: {result['chunks_indexed']} chunks")
+        logger.info(f"✓ Ingested {filename}: {result['chunks_indexed']} chunks")
     
         INGEST_REQUESTS.labels(status="success").inc()
         return {
@@ -241,7 +261,7 @@ async def ingest(
             "doc_id": result["doc_id"],
             "chunks_indexed": result["chunks_indexed"],
             "embedding_model": result["embedding_model"],
-            "source": file.filename,
+            "source": filename,
             "guardrails": {
                 "pii_detected": input_check.pii_detected,
                 "toxicity_score": input_check.toxicity_score,
@@ -365,7 +385,7 @@ async def chat(
         
         CHAT_REQUESTS.labels(status="success").inc()
         logger.info(f"✓ Chat completed: {response['confidence']:.2%} confidence")
-        return response
+        return _json_safe(response)
     
     except HTTPException:
         CHAT_REQUESTS.labels(status="error").inc()
@@ -377,7 +397,7 @@ async def chat(
 # ==================== Qdrant Collection Init ====================
 @app.post("/api/admin/init-collection")
 async def init_collection(
-    collection_name: str = None,
+    collection_name: Optional[str] = None,
     api_key: str = Header(None, alias="X-API-Key"),
 ):
     """

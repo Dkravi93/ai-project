@@ -36,6 +36,11 @@ class QdrantManager:
     def health_check(self) -> bool:
         """Check if Qdrant server is healthy."""
         try:
+            if settings.qdrant_mode != "remote":
+                self.client.get_collections()
+                logger.info("Embedded Qdrant health check passed")
+                return True
+
             with socket.create_connection(
                 (settings.qdrant_host, settings.qdrant_port),
                 timeout=settings.qdrant_timeout_seconds,

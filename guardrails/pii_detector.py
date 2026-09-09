@@ -42,7 +42,6 @@ def _get_engines():
             class _PreloadedSpacyNlpEngine(SpacyNlpEngine):
                 def load(self):
                     self.nlp = {"en": _loaded_nlp}
-                    self.is_loaded = True
 
             nlp_engine = _PreloadedSpacyNlpEngine()
             nlp_engine.load()

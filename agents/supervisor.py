@@ -101,6 +101,22 @@ def supervisor_node(state: AgentState) -> AgentState:
         return state
         
     except Exception as e:
+        error_message = str(e)
+        if "tool calling" in error_message.lower() or "tool_use" in error_message.lower():
+            logger.warning(
+                "Supervisor model does not support tool calling; "
+                "using the document-QA fallback plan"
+            )
+            state["plan"] = ["retriever", "writer"]
+            state["agent_trace"].append({
+                "agent": "supervisor",
+                "timestamp": datetime.utcnow().isoformat(),
+                "input_summary": f"Query: {user_query[:50]}...",
+                "output_summary": "Fallback plan: retriever -> writer",
+                "duration_ms": 0,
+                "token_count": 0,
+            })
+            return state
         logger.error(f"Supervisor error: {str(e)}")
         state['errors'].append(f"Supervisor error: {str(e)}")
         state['plan'] = ['writer']
